@@ -379,6 +379,10 @@ pub struct Config {
     /// Default builder code inherited by orders built via [`Client::limit_order`] or
     /// [`Client::market_order`] when not set on the order itself.
     builder_code: Option<B256>,
+    /// Pre-built [`reqwest::Client`] to use for HTTP requests. When `None` (the default),
+    /// a new client is created with standard headers. Use this to configure proxies,
+    /// custom TLS, timeouts, etc.
+    http_client: Option<ReqwestClient>,
     #[cfg(feature = "heartbeats")]
     #[builder(default = Duration::from_secs(5))]
     /// How often the [`Client`] will automatically submit heartbeats. The default is five (5) seconds.
@@ -391,6 +395,7 @@ impl Default for Config {
             use_server_time: false,
             geoblock_host: None,
             builder_code: None,
+            http_client: None,
             #[cfg(feature = "heartbeats")]
             heartbeat_interval: Duration::from_secs(5),
         }
@@ -1422,14 +1427,20 @@ impl Client<Unauthenticated> {
     /// # }
     /// ```
     pub fn new(host: &str, config: Config) -> Result<Client<Unauthenticated>> {
-        let mut headers = HeaderMap::new();
-
-        headers.insert("User-Agent", HeaderValue::from_static("rs_clob_client"));
-        headers.insert("Accept", HeaderValue::from_static("*/*"));
-        headers.insert("Connection", HeaderValue::from_static("keep-alive"));
-        headers.insert("Content-Type", HeaderValue::from_static("application/json"));
-
-        let client = ReqwestClient::builder().default_headers(headers).build()?;
+        let client = match config.http_client.clone() {
+            Some(client) => client,
+            None => {
+                let mut headers = HeaderMap::new();
+                headers.insert("User-Agent", HeaderValue::from_static("rs_clob_client"));
+                headers.insert("Accept", HeaderValue::from_static("*/*"));
+                headers.insert("Connection", HeaderValue::from_static("keep-alive"));
+                headers.insert(
+                    "Content-Type",
+                    HeaderValue::from_static("application/json"),
+                );
+                ReqwestClient::builder().default_headers(headers).build()?
+            }
+        };
 
         let geoblock_host = Url::parse(
             config
