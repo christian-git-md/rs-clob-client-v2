@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 use alloy::primitives::{B256, Signature, U256};
 use bon::Builder;
@@ -419,8 +420,27 @@ impl<'de> Deserialize<'de> for TickSize {
     where
         D: Deserializer<'de>,
     {
-        let dec = <Decimal as Deserialize>::deserialize(deserializer)?;
-        TickSize::try_from(dec).map_err(de::Error::custom)
+        struct TickSizeVisitor;
+
+        impl<'de> de::Visitor<'de> for TickSizeVisitor {
+            type Value = TickSize;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a tick size as a string or number (e.g. \"0.01\" or 0.01)")
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<TickSize, E> {
+                let dec = Decimal::from_str(v).map_err(E::custom)?;
+                TickSize::try_from(dec).map_err(E::custom)
+            }
+
+            fn visit_f64<E: de::Error>(self, v: f64) -> std::result::Result<TickSize, E> {
+                let dec = Decimal::try_from(v).map_err(E::custom)?;
+                TickSize::try_from(dec).map_err(E::custom)
+            }
+        }
+
+        deserializer.deserialize_any(TickSizeVisitor)
     }
 }
 
