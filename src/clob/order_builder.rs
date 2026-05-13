@@ -365,8 +365,11 @@ impl<K: AuthKind> OrderBuilder<Limit, K> {
 
     /// Convenience: builds, signs, and posts this limit order in a single call.
     ///
-    /// If the server rejects the order due to a version mismatch, this automatically retries
-    /// once with the updated version — rebuilding and re-signing the order from scratch.
+    /// Retries automatically in two cases:
+    /// - The cached tick size has fewer decimal places than the price requires
+    ///   (e.g. cached 0.01 but price needs 0.001). The stale cache entry is
+    ///   evicted and the tick size is re-fetched on rebuild.
+    /// - The server rejects the order due to a version mismatch.
     ///
     /// # Errors
     ///
@@ -375,7 +378,21 @@ impl<K: AuthKind> OrderBuilder<Limit, K> {
         let client = self.client.clone();
         let before_version = client.resolve_version(false).await.unwrap_or(0);
         let retry = self.clone();
-        let order = self.build().await?;
+        let order = match self.build().await {
+            Ok(order) => order,
+            Err(err)
+                if err.kind() == crate::error::Kind::Validation
+                    && err
+                        .downcast_ref::<crate::error::Validation>()
+                        .map_or(false, |v| v.reason.contains("Minimum tick size")) =>
+            {
+                if let Some(token_id) = retry.token_id {
+                    client.invalidate_tick_size(&token_id);
+                }
+                retry.clone().build().await?
+            }
+            Err(err) => return Err(err),
+        };
         let signed = client.sign(signer, order).await?;
         let result = client.post_order(signed).await;
         if let Err(err) = &result {

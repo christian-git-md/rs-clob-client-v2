@@ -562,6 +562,12 @@ impl<S: State> Client<S> {
         self.inner.tick_sizes.insert(token_id, tick_size);
     }
 
+    /// Removes the cached tick size for a single token so the next
+    /// [`tick_size()`](Self::tick_size) call re-fetches from the API.
+    pub fn invalidate_tick_size(&self, token_id: &U256) {
+        self.inner.tick_sizes.remove(token_id);
+    }
+
     /// Pre-populates the neg risk cache for a token, avoiding the HTTP call.
     ///
     /// Use this when you already have the neg risk data from another source
